@@ -1,0 +1,26 @@
+{
+  "cold_start": {
+    "cold_start_app_only_ms": 103.8,
+    "cold_start_total_with_python_boot_ms": 2029.9,
+    "first_healthz_status": 200
+  },
+  "load": {
+    "concurrency": 20,
+    "tasks_per_user": 10,
+    "total_requests": 660,
+    "wall_seconds": 7.676,
+    "qps": 86.0,
+    "latency_ms": {
+      "p50": 52.22,
+      "p95": 817.67,
+      "p99": 2235.69,
+      "max": 7195.4,
+      "mean": 184.55
+    }
+  },
+  "coverage": {
+    "coverage_percent": 87.97,
+    "lines_covered": 395,
+    "lines_total": 449
+  }
+}
