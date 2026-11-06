@@ -167,7 +167,7 @@ app = create_app(Settings(database_url="postgresql+psycopg://..."))
 
 **OpenTelemetry uses console exporter when enabled.** Production wires `OTEL_EXPORTER_OTLP_ENDPOINT` and you get OTLP-over-HTTP to Honeycomb/Jaeger/Tempo. The console exporter is for local development visibility.
 
-**JWT secret minimum is 8 chars; HS256 likes 32+.** The test suite uses a 32-char secret to avoid the warning. If `REST_API_JWT_SECRET` is unset, development uses a random per-process secret (tokens die on restart and don't work across workers) and `REST_API_ENVIRONMENT=production` refuses to start.
+**JWT secret minimum is 8 chars; HS256 likes 32+.** The test suite uses a 32-char secret to avoid the warning. If `REST_API_JWT_SECRET` is unset, development uses a random per-process secret (tokens die on restart and don't work across workers) and `REST_API_ENVIRONMENT=production` refuses to start. The old published default, `dev-secret-change-me`, is refused in every environment.
 
 ## License
 

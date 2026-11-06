@@ -71,3 +71,13 @@ def test_production_requires_an_explicit_jwt_secret(monkeypatch):
     with pytest.raises(ValidationError, match="REST_API_JWT_SECRET"):
         Settings(environment="production", jwt_secret="dev-secret-change-me")
     assert Settings(environment="production", jwt_secret="z" * 32).jwt_secret == "z" * 32
+
+
+def test_published_dev_secret_is_rejected_in_every_environment(monkeypatch):
+    import pytest
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("REST_API_JWT_SECRET", "dev-secret-change-me")
+    for env in ("development", "production"):
+        with pytest.raises(ValidationError, match="dev-secret-change-me"):
+            Settings(environment=env)

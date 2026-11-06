@@ -20,7 +20,7 @@ _log = logging.getLogger("api.config")
 # process, so no token can be signed with a value anyone else knows.
 _PROCESS_JWT_SECRET = secrets.token_urlsafe(32)
 
-# Insecure dev defaults that must not survive to production.
+# The old default secret, published in this repo: refused everywhere.
 _DEV_JWT_SECRET = "dev-secret-change-me"
 _DEV_CORS_ORIGINS = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"]
 
@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _no_dev_defaults_in_production(self) -> "Settings":
         secret_unset = "jwt_secret" not in self.model_fields_set
+        if self.jwt_secret == _DEV_JWT_SECRET:
+            raise ValueError(
+                "REST_API_JWT_SECRET is the published value 'dev-secret-change-me'; "
+                "set a real secret, or leave it unset outside production."
+            )
         if self.environment.lower() != "production":
             if secret_unset:
                 _log.warning(
@@ -68,11 +73,8 @@ class Settings(BaseSettings):
                 )
             return self
         problems: list[str] = []
-        if secret_unset or self.jwt_secret == _DEV_JWT_SECRET:
-            problems.append(
-                "REST_API_JWT_SECRET must be set to a real secret in production; "
-                "the dev default 'dev-secret-change-me' is rejected."
-            )
+        if secret_unset:
+            problems.append("REST_API_JWT_SECRET must be set to a real secret in production.")
         if "*" in self.cors_origins:
             problems.append(
                 "REST_API_CORS_ORIGINS must not contain '*' in production; "
