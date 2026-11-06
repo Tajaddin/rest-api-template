@@ -107,7 +107,7 @@ def _login(client, email: str) -> dict:
     return client.post("/login", json={"email": email, "password": "supersecret1"}).json()
 
 
-def test_racing_refreshes_of_one_token_succeed_only_once(client, settings):
+def test_racing_refreshes_of_one_token_succeed_once_then_end_the_session(client, settings):
     import pytest
 
     from api.db.session import get_session
@@ -121,11 +121,15 @@ def test_racing_refreshes_of_one_token_succeed_only_once(client, settings):
     try:
         stale_view = slow.query(RefreshToken).all()
         assert stale_view
-        assert client.post("/refresh", json={"refresh_token": rt}).status_code == 200
+        winner = client.post("/refresh", json={"refresh_token": rt})
+        assert winner.status_code == 200
         with pytest.raises(AuthError):
             rotate_refresh_token(slow, rt, settings)
     finally:
         slow.close()
+    # Losing the race counts as reuse, so the winner's new pair is revoked too.
+    winner_rt = winner.json()["refresh_token"]
+    assert client.post("/refresh", json={"refresh_token": winner_rt}).status_code == 401
 
 
 def test_reusing_a_rotated_refresh_token_revokes_its_family(client):
