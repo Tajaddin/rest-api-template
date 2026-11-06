@@ -161,7 +161,7 @@ app = create_app(Settings(database_url="postgresql+psycopg://..."))
 
 **SQLite default for portability.** The template works against Postgres out of the box (`pip install '.[postgres]'`), but the default `database_url` is SQLite so newcomers can run the test suite with no infrastructure. Concurrent throughput numbers improve significantly with Postgres + multiple Uvicorn workers, provided `REST_API_JWT_SECRET` is set: without it each worker draws its own random secret and rejects tokens issued by the others. Each worker also runs its own scheduler (see Background jobs).
 
-**No Alembic migrations in the bootstrap.** The schema is created from `Base.metadata.create_all` at startup. Production deployments should swap that for `alembic upgrade head` in a startup hook. Alembic is already in `dependencies` — just `alembic init alembic` and import `Base` from `api.db.session`.
+**No Alembic migrations in the bootstrap.** The schema is created from `Base.metadata.create_all` at startup. Production deployments should swap that for `alembic upgrade head` in a startup hook. Alembic is already in `dependencies` — just `alembic init alembic` and import `Base` from `api.db.session`. `create_all` never alters an existing table, so a database created before refresh tokens were stored hashed (a `token` column instead of `token_hash` and `family_id`) fails on login until you run `DROP TABLE refresh_tokens;`. The next start recreates the table; every session is lost and users log in again.
 
 **APScheduler is in-process.** It runs on the same process as the API. For multi-replica deployments, enable it on one replica only (`REST_API_SCHEDULER_ENABLED`), or swap to Celery or a dedicated worker pod. The job *functions* don't need to change.
 
