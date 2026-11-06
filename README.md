@@ -70,7 +70,7 @@ POST /refresh     (refresh)                    → 200, {access, refresh}  ← r
 POST /logout      (refresh)                    → 204                      ← refresh revoked
 ```
 
-Refresh tokens are **opaque random strings stored in DB** (not JWTs) so they can be revoked individually. Only their SHA-256 hash is stored, so a leaked database row can't be replayed. Each `/refresh` issues a fresh pair and burns the old refresh — no replay possible. The access token is a stateless JWT with `type: access` to prevent it being mistakenly accepted on `/refresh`.
+Refresh tokens are **opaque random strings stored in DB** (not JWTs) so they can be revoked individually. Only their SHA-256 hash is stored, so a leaked database row can't be replayed. Each `/refresh` claims the old refresh token with a conditional `UPDATE … WHERE revoked_at IS NULL`, so concurrent requests with one token get exactly one success, then issues a fresh pair. Presenting a token that was already rotated means two parties hold a copy, so every token descended from that login is revoked (reuse detection, RFC 9700 §4.14.2); other logins are untouched. The access token is a stateless JWT with `type: access` to prevent it being mistakenly accepted on `/refresh`.
 
 ## Background jobs
 

@@ -1,7 +1,8 @@
 """ORM tables.
 
 * :class:`User` — credentials + minimal profile.
-* :class:`RefreshToken` — SHA-256 hashes of opaque refresh tokens, with revocation tracking.
+* :class:`RefreshToken` — SHA-256 hashes of opaque refresh tokens, with revocation
+  tracking. Tokens rotated from one login share a ``family_id``.
 * :class:`Task` — a tiny domain entity to exercise CRUD endpoints + background jobs.
 """
 
@@ -43,6 +44,7 @@ class RefreshToken(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[_dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

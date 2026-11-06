@@ -21,17 +21,17 @@ def test_cleanup_removes_only_expired(client):
         db.flush()
         db.add(
             RefreshToken(
-                user_id=u.id, token_hash="active-1", expires_at=now + _dt.timedelta(days=1)
+                user_id=u.id, family_id="f", token_hash="active-1", expires_at=now + _dt.timedelta(days=1)
             )
         )
         db.add(
             RefreshToken(
-                user_id=u.id, token_hash="expired-1", expires_at=now - _dt.timedelta(days=1)
+                user_id=u.id, family_id="f", token_hash="expired-1", expires_at=now - _dt.timedelta(days=1)
             )
         )
         db.add(
             RefreshToken(
-                user_id=u.id, token_hash="expired-2", expires_at=now - _dt.timedelta(hours=1)
+                user_id=u.id, family_id="f", token_hash="expired-2", expires_at=now - _dt.timedelta(hours=1)
             )
         )
 
@@ -52,7 +52,7 @@ def test_cleanup_is_idempotent(client):
         db.flush()
         db.add(
             RefreshToken(
-                user_id=u.id, token_hash="expired-x", expires_at=now - _dt.timedelta(hours=1)
+                user_id=u.id, family_id="f", token_hash="expired-x", expires_at=now - _dt.timedelta(hours=1)
             )
         )
     first = cleanup_expired_refresh_tokens()
