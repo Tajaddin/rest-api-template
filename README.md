@@ -1,8 +1,8 @@
 # rest-api-template
 
-> Production-grade FastAPI scaffold: **JWT + opaque refresh tokens** (rotated on use, revokable), **APScheduler** background jobs, **OpenTelemetry** instrumentation, **SQLAlchemy 2.0** with Postgres or SQLite. **40/40 pytest cases** pass with **92 % code coverage**. Cold-start to first `/healthz` 200: **103 ms** (app-only). Sustained 20-concurrent-user workload (register → login → 20 task CRUD ops each): **86 QPS, p50 = 52 ms**.
+> Production-grade FastAPI scaffold: **JWT + opaque refresh tokens** (rotated on use, revokable), **APScheduler** background jobs, **OpenTelemetry** instrumentation, **SQLAlchemy 2.0** with Postgres or SQLite. **42/42 pytest cases** pass with **92 % code coverage**. Cold-start to first `/healthz` 200: **103 ms** (app-only). Sustained 20-concurrent-user workload (register → login → 20 task CRUD ops each): **86 QPS, p50 = 52 ms**.
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Tests](https://img.shields.io/badge/tests-40%20passing-brightgreen)](#tests) [![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)](#tests) [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Tests](https://img.shields.io/badge/tests-42%20passing-brightgreen)](#tests) [![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)](#tests) [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 
 ## What you get
 
@@ -22,6 +22,8 @@ A FastAPI service that's ready to deploy, not a "hello world" wrapper. Every con
 
 `python bench/run_benchmark.py --concurrency 20 --tasks-per-user 10`
 
+Only the coverage block below was measured on the current code. The cold-start and load blocks are from an earlier run, before the app started APScheduler in its lifespan, and that cold start skipped the lifespan (the script now enters it). They have not been re-measured; `bench/results.json` carries the same note.
+
 ```json
 {
   "cold_start": {
@@ -37,18 +39,18 @@ A FastAPI service that's ready to deploy, not a "hello world" wrapper. Every con
     "qps": 86.0,
     "latency_ms": {"p50": 52.22, "p95": 817.67, "p99": 2235.69, "mean": 184.55}
   },
-  "coverage": {"coverage_percent": 91.79, "lines_covered": 447, "lines_total": 487}
+  "coverage": {"coverage_percent": 91.9, "lines_covered": 454, "lines_total": 494}
 }
 ```
 
 | Metric | Value | What it means |
 |---|---:|---|
-| Cold start (app only) | **103.8 ms** | Time from `import api` to first `/healthz` returning 200 |
+| Cold start (app only) | **103.8 ms** | Time from `import api` to first `/healthz` returning 200. Measured without the lifespan (no scheduler start); not re-measured |
 | Cold start (process boot included) | 2.03 s | Adds Python interpreter + dependency imports — the realistic "kubernetes pod ready" number. Measured before the app imported and started APScheduler, which now adds to it; not re-measured |
 | QPS @ 20 concurrent users | **86** | 20 register → login → 20-tasks-each = 660 total reqs in 7.7 s |
 | p50 latency | **52 ms** | The "feels instant" path |
 | p99 latency | 2.24 s | **Dominated by concurrent bcrypt registers** — see the honest discussion below |
-| Code coverage | **92 %** | `pytest --cov` over the 40-test suite |
+| Code coverage | **92 %** | `pytest --cov` over the 42-test suite |
 
 ### Honest read on the p99
 
@@ -98,16 +100,16 @@ pytest --cov=src/api
 ```
 
 ```
-test_config.py             6 passed   default settings, env-prefix override, short-secret rejection, random per-process secret, forged dev-secret token rejected, production needs a secret
+test_config.py             7 passed   default settings, env-prefix override, short-secret rejection, random per-process secret, forged dev-secret token rejected, production needs a secret, dev secret refused everywhere
 test_cli.py                2 passed   binds 127.0.0.1 by default, --host still overrides
 test_security.py           6 passed   bcrypt roundtrip, corrupt-hash safe, JWT decode, JWT expiry, wrong-secret reject, refresh-token uniqueness
 test_health.py             2 passed   /healthz, /readyz with DB ping
 test_auth_routes.py       14 passed   register / login / refresh-rotation / logout-revoke / bearer-required / garbage-token / hashed at rest / racing refreshes / reuse revokes the family
 test_task_routes.py        6 passed   CRUD happy-path, 404 missing, cross-user isolation, auth required
-test_background_jobs.py    4 passed   cleanup deletes only expired + idempotent on second run, active-user count, scheduler runs for the app's lifetime
+test_background_jobs.py    5 passed   cleanup deletes only expired + idempotent on second run, active-user count, scheduler runs for the app's lifetime, scheduler can be turned off
 ─────────────────────────────────────────────
-40 passed
-coverage: 92 %  (447 / 487 lines)
+42 passed
+coverage: 92 %  (454 / 494 lines)
 ```
 
 ## Quickstart
@@ -153,7 +155,7 @@ app = create_app(Settings(database_url="postgresql+psycopg://..."))
 │   ├── jobs/scheduler.py   # APScheduler jobs + functions
 │   ├── telemetry/otel.py   # OpenTelemetry setup (optional)
 │   └── cli.py              # `rest-api` entrypoint
-├── tests/                  # 40 cases across 7 test files
+├── tests/                  # 42 cases across 7 test files
 └── bench/run_benchmark.py  # cold-start + load + coverage
 ```
 
