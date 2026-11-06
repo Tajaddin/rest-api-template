@@ -7,10 +7,18 @@ per test so configuration is never globally mutated.
 
 from __future__ import annotations
 
+import logging
+import secrets
 from functools import lru_cache
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_log = logging.getLogger("api.config")
+
+# Used when REST_API_JWT_SECRET is unset outside production: random per
+# process, so no token can be signed with a value anyone else knows.
+_PROCESS_JWT_SECRET = secrets.token_urlsafe(32)
 
 # Insecure dev defaults that must not survive to production.
 _DEV_JWT_SECRET = "dev-secret-change-me"
@@ -36,7 +44,7 @@ class Settings(BaseSettings):
     environment: str = Field(default="development")
 
     # Auth
-    jwt_secret: str = Field(default=_DEV_JWT_SECRET, min_length=8)
+    jwt_secret: str = Field(default=_PROCESS_JWT_SECRET, min_length=8)
     jwt_algorithm: str = Field(default="HS256")
     access_token_minutes: int = Field(default=15, gt=0)
     refresh_token_days: int = Field(default=14, gt=0)
@@ -51,10 +59,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _no_dev_defaults_in_production(self) -> "Settings":
+        secret_unset = "jwt_secret" not in self.model_fields_set
         if self.environment.lower() != "production":
+            if secret_unset:
+                _log.warning(
+                    "REST_API_JWT_SECRET is not set; using a random per-process secret. "
+                    "Tokens will not survive a restart or work across workers."
+                )
             return self
         problems: list[str] = []
-        if self.jwt_secret == _DEV_JWT_SECRET:
+        if secret_unset or self.jwt_secret == _DEV_JWT_SECRET:
             problems.append(
                 "REST_API_JWT_SECRET must be set to a real secret in production; "
                 "the dev default 'dev-secret-change-me' is rejected."
