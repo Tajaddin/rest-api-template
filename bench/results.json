@@ -19,8 +19,8 @@
     }
   },
   "coverage": {
-    "coverage_percent": 87.97,
-    "lines_covered": 395,
-    "lines_total": 449
+    "coverage_percent": 91.79,
+    "lines_covered": 447,
+    "lines_total": 487
   }
 }
