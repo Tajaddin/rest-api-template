@@ -74,7 +74,7 @@ Refresh tokens are **opaque random strings stored in DB** (not JWTs) so they can
 
 ## Background jobs
 
-APScheduler runs in-process. Two example jobs ship:
+APScheduler runs in-process: the app starts it in its lifespan and shuts it down with the server. Two example jobs ship:
 
 | Job | Schedule | Action |
 |---|---|---|

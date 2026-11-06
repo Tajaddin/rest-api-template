@@ -59,3 +59,23 @@ def test_cleanup_is_idempotent(client):
     second = cleanup_expired_refresh_tokens()
     assert first == 1
     assert second == 0
+
+
+def test_count_active_users_counts_only_active(client):
+    from api.jobs.scheduler import count_active_users
+
+    with session_scope() as db:
+        db.add(User(email="on1@example.com", password_hash="x"))
+        db.add(User(email="on2@example.com", password_hash="x"))
+        db.add(User(email="off@example.com", password_hash="x", is_active=False))
+    assert count_active_users() == 2
+
+
+def test_app_runs_the_scheduler_for_its_lifetime(app):
+    from fastapi.testclient import TestClient
+
+    with TestClient(app):
+        sched = app.state.scheduler
+        assert sched.running
+        assert {j.id for j in sched.get_jobs()} == {"cleanup_refresh_tokens", "active_user_count"}
+    assert not sched.running

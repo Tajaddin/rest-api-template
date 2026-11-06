@@ -1,7 +1,8 @@
 """APScheduler-based background jobs.
 
 We use APScheduler (in-process) rather than Celery so the template runs
-without external infrastructure (no Redis / RabbitMQ broker). For
+without external infrastructure (no Redis / RabbitMQ broker). The app
+starts the scheduler in its lifespan and stops it on shutdown. For
 production use, the contract is unchanged — swap the scheduler module
 for one that submits to Celery / RQ / Dramatiq.
 
@@ -19,7 +20,7 @@ import logging
 from typing import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from api.db.session import session_scope
 from api.models.tables import RefreshToken, User
@@ -46,20 +47,17 @@ def cleanup_expired_refresh_tokens(*, now_factory: Callable[[], _dt.datetime] | 
 
 def count_active_users() -> int:
     with session_scope() as db:
-        return int(
-            db.execute(
-                select(User).where(User.is_active.is_(True))
-            ).scalars().unique().rowcount or len(db.execute(select(User).where(User.is_active.is_(True))).scalars().all())
-        )
+        return db.execute(
+            select(func.count()).select_from(User).where(User.is_active.is_(True))
+        ).scalar_one()
+
+
+def log_active_user_count() -> None:
+    _log.info("active_user_count=%s", count_active_users())
 
 
 def build_scheduler() -> BackgroundScheduler:
     sched = BackgroundScheduler()
     sched.add_job(cleanup_expired_refresh_tokens, "interval", minutes=1, id="cleanup_refresh_tokens")
-    sched.add_job(
-        lambda: _log.info("active_user_count=%s", count_active_users()),
-        "interval",
-        minutes=5,
-        id="active_user_count",
-    )
+    sched.add_job(log_active_user_count, "interval", minutes=5, id="active_user_count")
     return sched
