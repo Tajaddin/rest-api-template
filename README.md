@@ -78,7 +78,7 @@ The access token is a stateless JWT with `type: access` to prevent it being mist
 
 ## Background jobs
 
-APScheduler runs in-process: the app starts it in its lifespan and shuts it down with the server. Two example jobs ship:
+APScheduler runs in-process: the app starts it in its lifespan and shuts it down with the server. Each process serving the app runs its own scheduler, so N workers or replicas run every job N times; set `REST_API_SCHEDULER_ENABLED=false` on all replicas but one to run them once. Two example jobs ship:
 
 | Job | Schedule | Action |
 |---|---|---|
@@ -159,11 +159,11 @@ app = create_app(Settings(database_url="postgresql+psycopg://..."))
 
 ## Limitations
 
-**SQLite default for portability.** The template works against Postgres out of the box (`pip install '.[postgres]'`), but the default `database_url` is SQLite so newcomers can run the test suite with no infrastructure. Concurrent throughput numbers improve significantly with Postgres + multiple Uvicorn workers.
+**SQLite default for portability.** The template works against Postgres out of the box (`pip install '.[postgres]'`), but the default `database_url` is SQLite so newcomers can run the test suite with no infrastructure. Concurrent throughput numbers improve significantly with Postgres + multiple Uvicorn workers, provided `REST_API_JWT_SECRET` is set: without it each worker draws its own random secret and rejects tokens issued by the others. Each worker also runs its own scheduler (see Background jobs).
 
 **No Alembic migrations in the bootstrap.** The schema is created from `Base.metadata.create_all` at startup. Production deployments should swap that for `alembic upgrade head` in a startup hook. Alembic is already in `dependencies` — just `alembic init alembic` and import `Base` from `api.db.session`.
 
-**APScheduler is in-process.** It runs on the same process as the API. For multi-replica deployments, swap to Celery or a dedicated worker pod. The job *functions* don't need to change.
+**APScheduler is in-process.** It runs on the same process as the API. For multi-replica deployments, enable it on one replica only (`REST_API_SCHEDULER_ENABLED`), or swap to Celery or a dedicated worker pod. The job *functions* don't need to change.
 
 **OpenTelemetry uses console exporter when enabled.** Production wires `OTEL_EXPORTER_OTLP_ENDPOINT` and you get OTLP-over-HTTP to Honeycomb/Jaeger/Tempo. The console exporter is for local development visibility.
 

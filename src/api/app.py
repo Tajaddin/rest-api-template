@@ -19,6 +19,9 @@ from api.telemetry.otel import configure_telemetry
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    if not app.state.settings.scheduler_enabled:
+        yield
+        return
     scheduler = build_scheduler()
     scheduler.start()
     app.state.scheduler = scheduler
@@ -40,6 +43,7 @@ def create_app(settings: Settings | None = None, *, create_tables: bool = True) 
         description="Production FastAPI scaffold with JWT+refresh auth, background jobs, OpenTelemetry.",
         lifespan=_lifespan,
     )
+    app.state.settings = settings
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

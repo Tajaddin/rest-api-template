@@ -79,3 +79,16 @@ def test_app_runs_the_scheduler_for_its_lifetime(app):
         assert sched.running
         assert {j.id for j in sched.get_jobs()} == {"cleanup_refresh_tokens", "active_user_count"}
     assert not sched.running
+
+
+def test_scheduler_can_be_turned_off(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from api.app import create_app
+    from api.config import Settings
+
+    monkeypatch.setenv("REST_API_SCHEDULER_ENABLED", "false")
+    s = Settings(database_url=f"sqlite:///{(tmp_path / 'j.sqlite').as_posix()}", jwt_secret="j" * 32)
+    app = create_app(s)
+    with TestClient(app):
+        assert getattr(app.state, "scheduler", None) is None

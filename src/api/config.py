@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     access_token_minutes: int = Field(default=15, gt=0)
     refresh_token_days: int = Field(default=14, gt=0)
 
+    # Background jobs. Every process serving the app runs its own scheduler,
+    # so turn it off on all replicas but one.
+    scheduler_enabled: bool = Field(default=True)
+
     # Telemetry
     otel_service_name: str = Field(default="rest-api-template")
     otel_enabled: bool = Field(default=False)
