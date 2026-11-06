@@ -110,8 +110,9 @@ coverage: 88 %  (395 / 449 lines)
 ```bash
 pip install -e ".[dev]"
 
-# Default SQLite — no external infra required.
-rest-api --host 0.0.0.0 --port 8000
+# Default SQLite — no external infra required. Binds 127.0.0.1;
+# pass --host 0.0.0.0 inside a container.
+rest-api --port 8000
 
 # Postgres:
 pip install -e ".[postgres]"
