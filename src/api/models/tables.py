@@ -1,14 +1,13 @@
 """ORM tables.
 
 * :class:`User` — credentials + minimal profile.
-* :class:`RefreshToken` — opaque refresh tokens with revocation tracking.
+* :class:`RefreshToken` — SHA-256 hashes of opaque refresh tokens, with revocation tracking.
 * :class:`Task` — a tiny domain entity to exercise CRUD endpoints + background jobs.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
-import secrets
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -44,9 +43,7 @@ class RefreshToken(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    token: Mapped[str] = mapped_column(
-        String(64), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(48)
-    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[_dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[_dt.datetime] = mapped_column(

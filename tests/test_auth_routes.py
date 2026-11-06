@@ -81,3 +81,22 @@ def test_logout_revokes_refresh(client):
 def test_bearer_token_with_garbage_rejected(client):
     r = client.get("/me", headers={"Authorization": "Bearer garbage"})
     assert r.status_code == 401
+
+
+def test_refresh_tokens_are_not_stored_in_plaintext(client):
+    import hashlib
+
+    from sqlalchemy import text
+
+    from api.db.session import session_scope
+
+    client.post("/register", json={"email": "hash@example.com", "password": "supersecret1"})
+    rt = client.post("/login", json={"email": "hash@example.com", "password": "supersecret1"}).json()[
+        "refresh_token"
+    ]
+    with session_scope() as db:
+        rows = db.execute(text("SELECT * FROM refresh_tokens")).all()
+    assert len(rows) == 1
+    stored = [str(v) for v in rows[0]]
+    assert rt not in stored
+    assert hashlib.sha256(rt.encode()).hexdigest() in stored
