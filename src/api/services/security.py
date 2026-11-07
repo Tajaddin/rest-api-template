@@ -3,12 +3,14 @@
 * ``hash_password`` / ``verify_password`` use bcrypt via passlib.
 * ``create_access_token`` issues a short-lived JWT with `sub`, `iat`, `exp`.
 * Refresh tokens are opaque (random URL-safe strings) stored in DB so they
-  can be revoked individually. They are NOT JWTs by design.
+  can be revoked individually. Only their SHA-256 hash is stored, so a leaked
+  row can't be replayed. They are NOT JWTs by design.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import secrets
 
 import bcrypt
@@ -58,3 +60,8 @@ def decode_access_token(token: str, settings: Settings) -> dict:
 
 def new_refresh_token_value() -> str:
     return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(value: str) -> str:
+    """Unsalted SHA-256 is enough here: the input is 384 random bits."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()

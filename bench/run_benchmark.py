@@ -96,18 +96,20 @@ async def run_load(concurrency: int, n_tasks_per_user: int) -> dict:
 
 def measure_cold_start() -> dict:
     """Spawn a server, hit /healthz, record time-to-first-200."""
+    # Entering the TestClient runs the lifespan, which starts the scheduler,
+    # as a real server does before it accepts requests.
     code = (
-        "import sys, time; "
-        "sys.path.insert(0, 'src'); "
-        "from fastapi.testclient import TestClient; "
-        "from api.app import create_app; "
-        "from api.config import Settings; "
-        "t0 = time.perf_counter(); "
-        "app = create_app(Settings(database_url='sqlite:///cold.sqlite'), create_tables=True); "
-        "c = TestClient(app); "
-        "r = c.get('/healthz'); "
-        "print(round((time.perf_counter()-t0)*1000, 1)); "
-        "print(r.status_code)"
+        "import sys, time\n"
+        "sys.path.insert(0, 'src')\n"
+        "from fastapi.testclient import TestClient\n"
+        "from api.app import create_app\n"
+        "from api.config import Settings\n"
+        "t0 = time.perf_counter()\n"
+        "app = create_app(Settings(database_url='sqlite:///cold.sqlite'), create_tables=True)\n"
+        "with TestClient(app) as c:\n"
+        "    r = c.get('/healthz')\n"
+        "    print(round((time.perf_counter()-t0)*1000, 1))\n"
+        "    print(r.status_code)\n"
     )
     t0 = time.perf_counter()
     proc = subprocess.run(

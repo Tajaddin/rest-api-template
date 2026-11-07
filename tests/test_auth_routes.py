@@ -81,3 +81,66 @@ def test_logout_revokes_refresh(client):
 def test_bearer_token_with_garbage_rejected(client):
     r = client.get("/me", headers={"Authorization": "Bearer garbage"})
     assert r.status_code == 401
+
+
+def test_refresh_tokens_are_not_stored_in_plaintext(client):
+    import hashlib
+
+    from sqlalchemy import text
+
+    from api.db.session import session_scope
+
+    client.post("/register", json={"email": "hash@example.com", "password": "supersecret1"})
+    rt = client.post("/login", json={"email": "hash@example.com", "password": "supersecret1"}).json()[
+        "refresh_token"
+    ]
+    with session_scope() as db:
+        rows = db.execute(text("SELECT * FROM refresh_tokens")).all()
+    assert len(rows) == 1
+    stored = [str(v) for v in rows[0]]
+    assert rt not in stored
+    assert hashlib.sha256(rt.encode()).hexdigest() in stored
+
+
+def _login(client, email: str) -> dict:
+    client.post("/register", json={"email": email, "password": "supersecret1"})
+    return client.post("/login", json={"email": email, "password": "supersecret1"}).json()
+
+
+def test_racing_refreshes_of_one_token_succeed_once_then_end_the_session(client, settings):
+    import pytest
+
+    from api.db.session import get_session
+    from api.models.tables import RefreshToken
+    from api.services.auth import AuthError, rotate_refresh_token
+
+    rt = _login(client, "race@example.com")["refresh_token"]
+    # A second request reads the token row, then loses the CPU before writing.
+    # Holding the loaded rows keeps them in its identity map, i.e. its stale view.
+    slow = next(get_session())
+    try:
+        stale_view = slow.query(RefreshToken).all()
+        assert stale_view
+        winner = client.post("/refresh", json={"refresh_token": rt})
+        assert winner.status_code == 200
+        with pytest.raises(AuthError):
+            rotate_refresh_token(slow, rt, settings)
+    finally:
+        slow.close()
+    # Losing the race counts as reuse, so the winner's new pair is revoked too.
+    winner_rt = winner.json()["refresh_token"]
+    assert client.post("/refresh", json={"refresh_token": winner_rt}).status_code == 401
+
+
+def test_reusing_a_rotated_refresh_token_revokes_its_family(client):
+    first = _login(client, "reuse@example.com")
+    other_device = client.post(
+        "/login", json={"email": "reuse@example.com", "password": "supersecret1"}
+    ).json()
+    second = client.post("/refresh", json={"refresh_token": first["refresh_token"]}).json()
+
+    # The old token shows up again: either the client or a thief has a copy.
+    assert client.post("/refresh", json={"refresh_token": first["refresh_token"]}).status_code == 401
+    assert client.post("/refresh", json={"refresh_token": second["refresh_token"]}).status_code == 401
+    # Sessions started by a separate login are a different family and survive.
+    assert client.post("/refresh", json={"refresh_token": other_device["refresh_token"]}).status_code == 200

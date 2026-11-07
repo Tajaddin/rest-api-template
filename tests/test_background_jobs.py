@@ -21,17 +21,17 @@ def test_cleanup_removes_only_expired(client):
         db.flush()
         db.add(
             RefreshToken(
-                user_id=u.id, token="active-1", expires_at=now + _dt.timedelta(days=1)
+                user_id=u.id, family_id="f", token_hash="active-1", expires_at=now + _dt.timedelta(days=1)
             )
         )
         db.add(
             RefreshToken(
-                user_id=u.id, token="expired-1", expires_at=now - _dt.timedelta(days=1)
+                user_id=u.id, family_id="f", token_hash="expired-1", expires_at=now - _dt.timedelta(days=1)
             )
         )
         db.add(
             RefreshToken(
-                user_id=u.id, token="expired-2", expires_at=now - _dt.timedelta(hours=1)
+                user_id=u.id, family_id="f", token_hash="expired-2", expires_at=now - _dt.timedelta(hours=1)
             )
         )
 
@@ -40,7 +40,7 @@ def test_cleanup_removes_only_expired(client):
 
     with session_scope() as db:
         remaining = db.execute(select(RefreshToken)).scalars().all()
-        assert {r.token for r in remaining} == {"active-1"}
+        assert {r.token_hash for r in remaining} == {"active-1"}
 
 
 def test_cleanup_is_idempotent(client):
@@ -52,10 +52,43 @@ def test_cleanup_is_idempotent(client):
         db.flush()
         db.add(
             RefreshToken(
-                user_id=u.id, token="expired-x", expires_at=now - _dt.timedelta(hours=1)
+                user_id=u.id, family_id="f", token_hash="expired-x", expires_at=now - _dt.timedelta(hours=1)
             )
         )
     first = cleanup_expired_refresh_tokens()
     second = cleanup_expired_refresh_tokens()
     assert first == 1
     assert second == 0
+
+
+def test_count_active_users_counts_only_active(client):
+    from api.jobs.scheduler import count_active_users
+
+    with session_scope() as db:
+        db.add(User(email="on1@example.com", password_hash="x"))
+        db.add(User(email="on2@example.com", password_hash="x"))
+        db.add(User(email="off@example.com", password_hash="x", is_active=False))
+    assert count_active_users() == 2
+
+
+def test_app_runs_the_scheduler_for_its_lifetime(app):
+    from fastapi.testclient import TestClient
+
+    with TestClient(app):
+        sched = app.state.scheduler
+        assert sched.running
+        assert {j.id for j in sched.get_jobs()} == {"cleanup_refresh_tokens", "active_user_count"}
+    assert not sched.running
+
+
+def test_scheduler_can_be_turned_off(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from api.app import create_app
+    from api.config import Settings
+
+    monkeypatch.setenv("REST_API_SCHEDULER_ENABLED", "false")
+    s = Settings(database_url=f"sqlite:///{(tmp_path / 'j.sqlite').as_posix()}", jwt_secret="j" * 32)
+    app = create_app(s)
+    with TestClient(app):
+        assert getattr(app.state, "scheduler", None) is None

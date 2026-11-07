@@ -1,4 +1,5 @@
 {
+  "note": "Only the coverage block reflects the current code. cold_start and load are from an earlier run, before the app started APScheduler in its lifespan; that cold start also skipped the lifespan, which run_benchmark.py now enters. Not re-measured since: the machine was too loaded for comparable timings.",
   "cold_start": {
     "cold_start_app_only_ms": 103.8,
     "cold_start_total_with_python_boot_ms": 2029.9,
@@ -19,8 +20,8 @@
     }
   },
   "coverage": {
-    "coverage_percent": 87.97,
-    "lines_covered": 395,
-    "lines_total": 449
+    "coverage_percent": 91.9,
+    "lines_covered": 454,
+    "lines_total": 494
   }
 }

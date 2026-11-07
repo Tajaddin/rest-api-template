@@ -1,8 +1,8 @@
 # rest-api-template
 
-> Production-grade FastAPI scaffold: **JWT + opaque refresh tokens** (rotated on use, revokable), **APScheduler** background jobs, **OpenTelemetry** instrumentation, **SQLAlchemy 2.0** with Postgres or SQLite. **30/30 pytest cases** pass in 5.5 s with **88 % code coverage**. Cold-start to first `/healthz` 200: **103 ms** (app-only). Sustained 20-concurrent-user workload (register → login → 20 task CRUD ops each): **86 QPS, p50 = 52 ms**.
+> Production-grade FastAPI scaffold: **JWT + opaque refresh tokens** (rotated on use, revokable), **APScheduler** background jobs, **OpenTelemetry** instrumentation, **SQLAlchemy 2.0** with Postgres or SQLite. **42/42 pytest cases** pass with **92 % code coverage**. Cold-start to first `/healthz` 200: **103 ms** (app-only). Sustained 20-concurrent-user workload (register → login → 20 task CRUD ops each): **86 QPS, p50 = 52 ms**.
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Tests](https://img.shields.io/badge/tests-30%20passing-brightgreen)](#tests) [![Coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)](#tests) [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Tests](https://img.shields.io/badge/tests-42%20passing-brightgreen)](#tests) [![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)](#tests) [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 
 ## What you get
 
@@ -22,6 +22,8 @@ A FastAPI service that's ready to deploy, not a "hello world" wrapper. Every con
 
 `python bench/run_benchmark.py --concurrency 20 --tasks-per-user 10`
 
+Only the coverage block below was measured on the current code. The cold-start and load blocks are from an earlier run, before the app started APScheduler in its lifespan, and that cold start skipped the lifespan (the script now enters it). They have not been re-measured; `bench/results.json` carries the same note.
+
 ```json
 {
   "cold_start": {
@@ -37,18 +39,18 @@ A FastAPI service that's ready to deploy, not a "hello world" wrapper. Every con
     "qps": 86.0,
     "latency_ms": {"p50": 52.22, "p95": 817.67, "p99": 2235.69, "mean": 184.55}
   },
-  "coverage": {"coverage_percent": 87.97, "lines_covered": 395, "lines_total": 449}
+  "coverage": {"coverage_percent": 91.9, "lines_covered": 454, "lines_total": 494}
 }
 ```
 
 | Metric | Value | What it means |
 |---|---:|---|
-| Cold start (app only) | **103.8 ms** | Time from `import api` to first `/healthz` returning 200 |
-| Cold start (process boot included) | 2.03 s | Adds Python interpreter + dependency imports — the realistic "kubernetes pod ready" number |
+| Cold start (app only) | **103.8 ms** | Time from `import api` to first `/healthz` returning 200. Measured without the lifespan (no scheduler start); not re-measured |
+| Cold start (process boot included) | 2.03 s | Adds Python interpreter + dependency imports — the realistic "kubernetes pod ready" number. Measured before the app imported and started APScheduler, which now adds to it; not re-measured |
 | QPS @ 20 concurrent users | **86** | 20 register → login → 20-tasks-each = 660 total reqs in 7.7 s |
 | p50 latency | **52 ms** | The "feels instant" path |
 | p99 latency | 2.24 s | **Dominated by concurrent bcrypt registers** — see the honest discussion below |
-| Code coverage | **88 %** | `pytest --cov` over the 30-test suite |
+| Code coverage | **92 %** | `pytest --cov` over the 42-test suite |
 
 ### Honest read on the p99
 
@@ -70,11 +72,15 @@ POST /refresh     (refresh)                    → 200, {access, refresh}  ← r
 POST /logout      (refresh)                    → 204                      ← refresh revoked
 ```
 
-Refresh tokens are **opaque random strings stored in DB** (not JWTs) so they can be revoked individually. Each `/refresh` issues a fresh pair and burns the old refresh — no replay possible. The access token is a stateless JWT with `type: access` to prevent it being mistakenly accepted on `/refresh`.
+Refresh tokens are **opaque random strings stored in DB** (not JWTs) so they can be revoked individually. Only their SHA-256 hash is stored, so a leaked database row can't be replayed. Each `/refresh` claims the old refresh token with a conditional `UPDATE … WHERE revoked_at IS NULL`, so of several concurrent requests with one token exactly one gets a new pair. Presenting a token that was already rotated means two parties hold a copy, so every token descended from that login is revoked (reuse detection, RFC 9700 §4.14.2); other logins are untouched.
+
+A request that loses the claim race counts as reuse too: the whole session is revoked, including the refresh token the winning request just received, and the user has to log in again (access tokens already issued stay valid until they expire). Clients must therefore make `/refresh` calls one at a time per session, share the result between tabs, and never retry a `/refresh` whose response was lost. A grace window for the previous token would soften this at the cost of a replay window; the template has none.
+
+The access token is a stateless JWT with `type: access` to prevent it being mistakenly accepted on `/refresh`.
 
 ## Background jobs
 
-APScheduler runs in-process. Two example jobs ship:
+APScheduler runs in-process: the app starts it in its lifespan and shuts it down with the server. Each process serving the app runs its own scheduler, so N workers or replicas run every job N times; set `REST_API_SCHEDULER_ENABLED=false` on all replicas but one to run them once. Two example jobs ship:
 
 | Job | Schedule | Action |
 |---|---|---|
@@ -94,15 +100,16 @@ pytest --cov=src/api
 ```
 
 ```
-test_config.py             3 passed   default settings, env-prefix override, short-secret rejection
+test_config.py             7 passed   default settings, env-prefix override, short-secret rejection, random per-process secret, forged dev-secret token rejected, production needs a secret, dev secret refused everywhere
+test_cli.py                2 passed   binds 127.0.0.1 by default, --host still overrides
 test_security.py           6 passed   bcrypt roundtrip, corrupt-hash safe, JWT decode, JWT expiry, wrong-secret reject, refresh-token uniqueness
 test_health.py             2 passed   /healthz, /readyz with DB ping
-test_auth_routes.py       11 passed   register / login / refresh-rotation / logout-revoke / bearer-required / garbage-token
+test_auth_routes.py       14 passed   register / login / refresh-rotation / logout-revoke / bearer-required / garbage-token / hashed at rest / racing refreshes / reuse revokes the family
 test_task_routes.py        6 passed   CRUD happy-path, 404 missing, cross-user isolation, auth required
-test_background_jobs.py    2 passed   cleanup deletes only expired + idempotent on second run
+test_background_jobs.py    5 passed   cleanup deletes only expired + idempotent on second run, active-user count, scheduler runs for the app's lifetime, scheduler can be turned off
 ─────────────────────────────────────────────
-30 passed in 5.46s
-coverage: 88 %  (395 / 449 lines)
+42 passed
+coverage: 92 %  (454 / 494 lines)
 ```
 
 ## Quickstart
@@ -110,8 +117,9 @@ coverage: 88 %  (395 / 449 lines)
 ```bash
 pip install -e ".[dev]"
 
-# Default SQLite — no external infra required.
-rest-api --host 0.0.0.0 --port 8000
+# Default SQLite — no external infra required. Binds 127.0.0.1;
+# pass --host 0.0.0.0 inside a container.
+rest-api --port 8000
 
 # Postgres:
 pip install -e ".[postgres]"
@@ -147,21 +155,21 @@ app = create_app(Settings(database_url="postgresql+psycopg://..."))
 │   ├── jobs/scheduler.py   # APScheduler jobs + functions
 │   ├── telemetry/otel.py   # OpenTelemetry setup (optional)
 │   └── cli.py              # `rest-api` entrypoint
-├── tests/                  # 30 cases across 7 files
+├── tests/                  # 42 cases across 7 test files
 └── bench/run_benchmark.py  # cold-start + load + coverage
 ```
 
 ## Limitations
 
-**SQLite default for portability.** The template works against Postgres out of the box (`pip install '.[postgres]'`), but the default `database_url` is SQLite so newcomers can run the test suite with no infrastructure. Concurrent throughput numbers improve significantly with Postgres + multiple Uvicorn workers.
+**SQLite default for portability.** The template works against Postgres out of the box (`pip install '.[postgres]'`), but the default `database_url` is SQLite so newcomers can run the test suite with no infrastructure. Concurrent throughput numbers improve significantly with Postgres + multiple Uvicorn workers, provided `REST_API_JWT_SECRET` is set: without it each worker draws its own random secret and rejects tokens issued by the others. Each worker also runs its own scheduler (see Background jobs).
 
-**No Alembic migrations in the bootstrap.** The schema is created from `Base.metadata.create_all` at startup. Production deployments should swap that for `alembic upgrade head` in a startup hook. Alembic is already in `dependencies` — just `alembic init alembic` and import `Base` from `api.db.session`.
+**No Alembic migrations in the bootstrap.** The schema is created from `Base.metadata.create_all` at startup. Production deployments should swap that for `alembic upgrade head` in a startup hook. Alembic is already in `dependencies` — just `alembic init alembic` and import `Base` from `api.db.session`. `create_all` never alters an existing table, so a database created before refresh tokens were stored hashed (a `token` column instead of `token_hash` and `family_id`) fails on login until you run `DROP TABLE refresh_tokens;`. The next start recreates the table; every session is lost and users log in again.
 
-**APScheduler is in-process.** It runs on the same process as the API. For multi-replica deployments, swap to Celery or a dedicated worker pod. The job *functions* don't need to change.
+**APScheduler is in-process.** It runs on the same process as the API. For multi-replica deployments, enable it on one replica only (`REST_API_SCHEDULER_ENABLED`), or swap to Celery or a dedicated worker pod. The job *functions* don't need to change.
 
 **OpenTelemetry uses console exporter when enabled.** Production wires `OTEL_EXPORTER_OTLP_ENDPOINT` and you get OTLP-over-HTTP to Honeycomb/Jaeger/Tempo. The console exporter is for local development visibility.
 
-**JWT secret minimum is 8 chars; HS256 likes 32+.** The test suite uses a 32-char secret to avoid the warning. The default `dev-secret-change-me` is intentionally insecure to force operators to set their own.
+**JWT secret minimum is 8 chars; HS256 likes 32+.** The test suite uses a 32-char secret to avoid the warning. If `REST_API_JWT_SECRET` is unset, development uses a random per-process secret (tokens die on restart and don't work across workers) and `REST_API_ENVIRONMENT=production` refuses to start. The old published default, `dev-secret-change-me`, is refused in every environment.
 
 ## License
 

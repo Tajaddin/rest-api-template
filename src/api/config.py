@@ -7,12 +7,20 @@ per test so configuration is never globally mutated.
 
 from __future__ import annotations
 
+import logging
+import secrets
 from functools import lru_cache
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Insecure dev defaults that must not survive to production.
+_log = logging.getLogger("api.config")
+
+# Used when REST_API_JWT_SECRET is unset outside production: random per
+# process, so no token can be signed with a value anyone else knows.
+_PROCESS_JWT_SECRET = secrets.token_urlsafe(32)
+
+# The old default secret, published in this repo: refused everywhere.
 _DEV_JWT_SECRET = "dev-secret-change-me"
 _DEV_CORS_ORIGINS = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"]
 
@@ -36,10 +44,14 @@ class Settings(BaseSettings):
     environment: str = Field(default="development")
 
     # Auth
-    jwt_secret: str = Field(default=_DEV_JWT_SECRET, min_length=8)
+    jwt_secret: str = Field(default=_PROCESS_JWT_SECRET, min_length=8)
     jwt_algorithm: str = Field(default="HS256")
     access_token_minutes: int = Field(default=15, gt=0)
     refresh_token_days: int = Field(default=14, gt=0)
+
+    # Background jobs. Every process serving the app runs its own scheduler,
+    # so turn it off on all replicas but one.
+    scheduler_enabled: bool = Field(default=True)
 
     # Telemetry
     otel_service_name: str = Field(default="rest-api-template")
@@ -51,14 +63,22 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _no_dev_defaults_in_production(self) -> "Settings":
+        secret_unset = "jwt_secret" not in self.model_fields_set
+        if self.jwt_secret == _DEV_JWT_SECRET:
+            raise ValueError(
+                "REST_API_JWT_SECRET is the published value 'dev-secret-change-me'; "
+                "set a real secret, or leave it unset outside production."
+            )
         if self.environment.lower() != "production":
+            if secret_unset:
+                _log.warning(
+                    "REST_API_JWT_SECRET is not set; using a random per-process secret. "
+                    "Tokens will not survive a restart or work across workers."
+                )
             return self
         problems: list[str] = []
-        if self.jwt_secret == _DEV_JWT_SECRET:
-            problems.append(
-                "REST_API_JWT_SECRET must be set to a real secret in production; "
-                "the dev default 'dev-secret-change-me' is rejected."
-            )
+        if secret_unset:
+            problems.append("REST_API_JWT_SECRET must be set to a real secret in production.")
         if "*" in self.cors_origins:
             problems.append(
                 "REST_API_CORS_ORIGINS must not contain '*' in production; "
